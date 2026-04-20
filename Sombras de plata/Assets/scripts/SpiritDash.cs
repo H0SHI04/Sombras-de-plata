@@ -1,5 +1,6 @@
 using UnityEngine;
-using UnityEngine.UI; // CRITICAL: This line allows us to talk to the Canvas!
+using UnityEngine.UI;
+using System.Collections; // Required for Coroutines
 
 [RequireComponent(typeof(CharacterController))]
 public class SpiritDash : MonoBehaviour
@@ -14,10 +15,15 @@ public class SpiritDash : MonoBehaviour
     public LayerMask solidObstaclesMask;
 
     [Header("UI Elements")]
-    [Tooltip("Drag your 3 UI Images here from the Hierarchy")]
     public Image[] dashIndicators; 
     public Color activeColor = Color.white;
-    public Color emptyColor = new Color(1f, 1f, 1f, 0.2f); // Same color, but 20% opacity (faded)
+    public Color emptyColor = new Color(1f, 1f, 1f, 0.2f);
+
+    [Header("Dash Polish (Juice)")]
+    public float dashFOV = 110f; // How much the screen stretches during the dash
+    public float effectDuration = 0.15f; // How long the effect lasts
+    public Image shadowOverlay; // Drag your new full-screen image here
+    private float normalFOV;
 
     private CharacterController characterController;
 
@@ -26,23 +32,22 @@ public class SpiritDash : MonoBehaviour
         characterController = GetComponent<CharacterController>();
         if (playerCamera == null) playerCamera = Camera.main;
         
+        normalFOV = playerCamera.fieldOfView; // Save their default FOV
         currentDashes = maxDashes;
-        UpdateDashUI(); // Make sure circles are full when we spawn
+        UpdateDashUI();
     }
 
     void Update()
     {
-        // 1. Ground Check to Recharge Dashes
         if (characterController.isGrounded)
         {
             if (currentDashes != maxDashes)
             {
                 currentDashes = maxDashes;
-                UpdateDashUI(); // Light the circles back up!
+                UpdateDashUI();
             }
         }
 
-        // 2. Dash Execution
         if (Input.GetMouseButtonDown(0) && currentDashes > 0)
         {
             PerformDash();
@@ -52,7 +57,7 @@ public class SpiritDash : MonoBehaviour
     private void PerformDash()
     {
         currentDashes--;
-        UpdateDashUI(); // Fade a circle out immediately 
+        UpdateDashUI();
 
         Vector3 direction = playerCamera.transform.forward;
         Vector3 targetPos = transform.position + (direction * dashDistance);
@@ -65,27 +70,51 @@ public class SpiritDash : MonoBehaviour
             targetPos = transform.position + (direction * safeDistance);
         }
 
-        characterController.enabled = false;
-        transform.position = targetPos;
-        characterController.enabled = true;
+        // Instead of just teleporting, we trigger the visual effect sequence
+        StartCoroutine(DashVisualsCoroutine(targetPos));
     }
 
-    // --- NEW UI METHOD ---
+    private IEnumerator DashVisualsCoroutine(Vector3 targetPosition)
+    {
+        // 1. THE SNAP: Instantly stretch the FOV and turn the screen shadowy
+        playerCamera.fieldOfView = dashFOV;
+        if (shadowOverlay != null) shadowOverlay.color = new Color(0, 0, 0, 0.7f); // 70% opacity
+
+        // 2. THE TELEPORT: Move the player instantly to avoid clipping through walls
+        characterController.enabled = false;
+        transform.position = targetPosition;
+        characterController.enabled = true;
+
+        // 3. THE LERP: Smoothly return the FOV to normal and fade out the shadow
+        float elapsed = 0f;
+        while (elapsed < effectDuration)
+        {
+            elapsed += Time.deltaTime;
+            float percentComplete = elapsed / effectDuration;
+
+            // Lerp FOV back down
+            playerCamera.fieldOfView = Mathf.Lerp(dashFOV, normalFOV, percentComplete);
+
+            // Lerp Shadow Alpha from 0.7 down to 0
+            if (shadowOverlay != null)
+            {
+                shadowOverlay.color = new Color(0, 0, 0, Mathf.Lerp(0.7f, 0f, percentComplete));
+            }
+
+            yield return null; // Wait for the next frame
+        }
+
+        // 4. CLEANUP: Ensure everything is perfectly reset
+        playerCamera.fieldOfView = normalFOV;
+        if (shadowOverlay != null) shadowOverlay.color = new Color(0, 0, 0, 0f);
+    }
+
     private void UpdateDashUI()
     {
-        // Loop through our 3 UI circles
         for (int i = 0; i < dashIndicators.Length; i++)
         {
-            // If this circle's index is less than our current dashes, light it up
-            if (i < currentDashes)
-            {
-                dashIndicators[i].color = activeColor;
-            }
-            // Otherwise, fade it out to show it's empty
-            else
-            {
-                dashIndicators[i].color = emptyColor;
-            }
+            if (i < currentDashes) dashIndicators[i].color = activeColor;
+            else dashIndicators[i].color = emptyColor;
         }
     }
 }
